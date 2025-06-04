@@ -88,6 +88,8 @@ async def parse_shadow_dom():
     try:
         # Настройка Chrome
         chrome_options = Options()
+        chrome_options.add_argument("--incognito")  # Режим инкогнито
+        chrome_options.add_argument("--disable-application-cache")
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920,1080")
