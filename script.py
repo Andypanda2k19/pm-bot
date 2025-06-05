@@ -89,9 +89,10 @@ async def parse_shadow_dom():
     try:
         # Настройка Chrome
         chrome_options = Options()
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_profile_{random.randint(1,10000)}")
-        chrome_options.add_argument("--headless")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920,1080")
 
