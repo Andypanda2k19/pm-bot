@@ -13,6 +13,7 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 from aiogram.enums import ParseMode
 import os
+import random
 
 # Настройки
 load_dotenv()
@@ -88,8 +89,8 @@ async def parse_shadow_dom():
     try:
         # Настройка Chrome
         chrome_options = Options()
-        chrome_options.add_argument("--incognito")  # Режим инкогнито
-        chrome_options.add_argument("--disable-application-cache")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_profile_{random.randint(1,10000)}")
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920,1080")
