@@ -18,7 +18,7 @@ import random
 # Настройки
 load_dotenv()
 TOKEN = "8125187062:AAFGe_HFNxM3oTMwWuQYIwvem2ILEkcUj3o"
-ADMIN_CHAT_ID = "665509096"
+ADMIN_CHAT_ID = "-1002605832321"
 
 # Искомые коэффициенты (любой из этих)
 TARGET_ODDS = {2.57, 1.83, 2.21}
