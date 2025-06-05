@@ -13,12 +13,11 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 from aiogram.enums import ParseMode
 import os
-import random
 
 # Настройки
 load_dotenv()
-TOKEN = "-"
-ADMIN_CHAT_ID = "-1002605-1"
+TOKEN = "8125187062:AAFGe_HFNxM3oTMwWuQYIwvem2ILEkcUj3o"
+ADMIN_CHAT_ID = "665509096"
 
 # Искомые коэффициенты (любой из этих)
 TARGET_ODDS = {2.57, 1.83, 2.21}
@@ -88,13 +87,10 @@ async def parse_shadow_dom():
     driver = None
     try:
         # Настройка Chrome
-       
-
         chrome_options = Options()
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_{random.randint(1,10000)}")
+        chrome_options.add_argument("--incognito")  # Режим инкогнито
+        chrome_options.add_argument("--disable-application-cache")
+        chrome_options.add_argument("--headless")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920,1080")
 
