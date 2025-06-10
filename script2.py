@@ -16,6 +16,12 @@ import os
 import random
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+import time
+import traceback
+from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException
+import hashlib
+
 
 # Настройки
 load_dotenv()
