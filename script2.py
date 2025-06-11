@@ -220,16 +220,6 @@ async def parse_match_page(driver, event_url):
 
         logger.info(f"Проверка команд: '{home_team}' vs '{away_team}'")
 
-        if "(" in home_team or "(" in away_team:
-            logger.info(f"Пропущен киберматч: {home_team} vs {away_team}")
-            return {
-                "teams": f"{home_team} - {away_team}",
-                "score": "",
-                "time": "",
-                "found_odds": [],
-                "has_target_odds": False,
-                "event_url": event_url
-            }
 
         time_info_elem = get_shadow_element(driver, shadow_host, ".lv_timer")
         time_info = time_info_elem.text if time_info_elem else ""
@@ -368,13 +358,22 @@ async def parse_shadow_dom(driver):
                 logger.warning(f"[{i}] Ссылка на матч не найдена.")
                 continue
 
-            time.sleep(2)
+            
             driver.execute_script("arguments[0].click();", match_link)
 
             WebDriverWait(driver, 10).until(lambda d: "/event-details/" in d.current_url)
             match_url = driver.current_url
+            if ")" in match_url.lower() or "(" in match_url.lower():
+                logger.info(f"[{i}] Пропуск киберфутбола: {match_url}")
+                i += 1
+                driver.get(BASE_URL)
+                WebDriverWait(driver, 10).until(lambda d: d.current_url == BASE_URL)
+                WebDriverWait(driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+                time.sleep(0.5)
+                continue
+
             logger.info(f"[{i + 1}] Перешли по клику: {match_url}")
-            time.sleep(2)
+            time.sleep(1)
 
             match_data = await parse_match_page(driver, match_url)
             if match_data:
@@ -393,6 +392,8 @@ async def parse_shadow_dom(driver):
 
     driver.quit()
     return all_matches
+
+
 
 
 
@@ -533,7 +534,7 @@ async def monitor_matches():
             if matches:
                 for match in matches:
                     if match['has_target_odds']:
-                        bet_id = str(hash(f"{match['teams']}_{match['time_info']}"))[:10]
+                        bet_id = str(hash(f"{match['teams']}_{match['time']}"))[:10]
                         if bet_id not in bet_messages:
                             await send_bet_to_chats(match, match['found_odds'])
                             await asyncio.sleep(DELAY_BETWEEN_MSGS)
@@ -614,7 +615,7 @@ async def manual_check(message: types.Message):
 
     await msg.edit_text("🔍 Найдены подходящие матчи. Отправляю в чаты...")
     for match in target_matches[:3]:
-        bet_id = str(hash(f"{match['teams']}_{match['time_info']}"))[:10]
+        bet_id = str(hash(f"{match['teams']}_{match['time']}"))[:10]
         if bet_id not in bet_messages:
             await send_bet_to_chats(match, match['found_odds'])
 
