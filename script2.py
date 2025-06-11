@@ -358,7 +358,7 @@ async def parse_shadow_dom(driver):
             WebDriverWait(driver, 10).until(lambda d: "/event-details/" in d.current_url)
             match_url = driver.current_url
             logger.info(f"[{i + 1}] Перешли по клику: {match_url}")
-            time.sleep(2)
+            time.sleep(5)
 
             match_data = await parse_match_page(driver, match_url)
             if match_data:
