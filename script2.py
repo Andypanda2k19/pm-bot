@@ -22,6 +22,7 @@ from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import StaleElementReferenceException
 import hashlib
 from logging.handlers import RotatingFileHandler
+import uuid
 
 
 # Настройки
