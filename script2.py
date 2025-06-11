@@ -21,6 +21,7 @@ import traceback
 from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import StaleElementReferenceException
 import hashlib
+from logging.handlers import RotatingFileHandler
 
 
 # Настройки
@@ -56,6 +57,21 @@ bet_messages = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+
+handler = RotatingFileHandler("bot.log", maxBytes=5_000_000, backupCount=3)
+
+def clean_tmp_older_than(minutes=30):
+    now = time.time()
+    tmp_dir = "/tmp"
+    for filename in os.listdir(tmp_dir):
+        filepath = os.path.join(tmp_dir, filename)
+        if os.path.isfile(filepath):
+            if now - os.path.getmtime(filepath) > minutes * 60:
+                try:
+                    os.remove(filepath)
+                except Exception:
+                    pass
 
 async def is_cyber_football(teams_text):
     """Проверяет, является ли матч киберфутболом"""
@@ -106,6 +122,8 @@ def setup_driver():
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-application-cache")
+    chrome_options.add_argument("--disk-cache-size=0")
     chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_profile_{random.randint(1,10000)}")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
