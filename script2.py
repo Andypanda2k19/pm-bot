@@ -331,10 +331,15 @@ async def parse_shadow_dom(driver):
     logger.info(f"Открытие страницы: {BASE_URL}")
     driver.get(BASE_URL)
 
+    # Ждем загрузки shadow root
     shadow_host = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.TAG_NAME, "sport-latino-view"))
     )
+
+    # Получаем список матчей один раз, потом будем обновлять в цикле
     shadow_root = driver.execute_script("return arguments[0].shadowRoot", shadow_host)
+
+    # Получаем изначальный список матчей
     match_blocks = shadow_root.find_elements(By.CSS_SELECTOR, ".lv_event_row")
     logger.info(f"Найдено матчей: {len(match_blocks)}")
 
@@ -342,9 +347,18 @@ async def parse_shadow_dom(driver):
 
     for i in range(len(match_blocks)):
         try:
+            # Каждый раз обновляем shadow host и корень (потому что после перехода DOM меняется)
             shadow_host = driver.find_element(By.TAG_NAME, "sport-latino-view")
             shadow_root = driver.execute_script("return arguments[0].shadowRoot", shadow_host)
+
+            # Обновляем список матчей
             match_blocks = shadow_root.find_elements(By.CSS_SELECTOR, ".lv_event_row")
+
+            # Проверяем, что индекс i не выходит за границы
+            if i >= len(match_blocks):
+                logger.warning(f"[{i}] Индекс превышает количество матчей после обновления списка. Пропускаем.")
+                continue
+
             match_element = match_blocks[i]
 
             match_link = driver.execute_script(
@@ -354,11 +368,13 @@ async def parse_shadow_dom(driver):
                 logger.warning(f"[{i}] Ссылка на матч не найдена.")
                 continue
 
+            time.sleep(2)
             driver.execute_script("arguments[0].click();", match_link)
+
             WebDriverWait(driver, 10).until(lambda d: "/event-details/" in d.current_url)
             match_url = driver.current_url
             logger.info(f"[{i + 1}] Перешли по клику: {match_url}")
-            time.sleep(5)
+            time.sleep(2)
 
             match_data = await parse_match_page(driver, match_url)
             if match_data:
@@ -472,8 +488,8 @@ async def send_bet_to_chats(match_info, found_odds):
                 odds_by_type[odd['type']] = []
             odds_by_type[odd['type']].append(str(odd['value']))
 
-        for market_type, odds in odds_by_type.items():
-            message_text += f"• {market_type}: {', '.join(odds)}\n"
+        for odd in found_odds:
+            message_text += f"• {odd['detail']}: {odd['value']}\n"
 
         # Генерируем стабильный bet_id через md5
         bet_id = hashlib.md5(f"{match_info['teams']}_{match_info['time']}".encode()).hexdigest()[:10]
