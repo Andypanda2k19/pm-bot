@@ -219,7 +219,7 @@ async def parse_match_page(driver, event_url):
         away_team = away_team_elem.text
 
         if "(" in home_team or "(" in away_team:
-        logger.info(f"Пропущен киберматч: {home_team} vs {away_team}")
+            logger.info(f"Пропущен киберматч: {home_team} vs {away_team}")
         return {
         "teams": f"{home_team} - {away_team}",
         "score": "",
