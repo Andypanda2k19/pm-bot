@@ -218,16 +218,18 @@ async def parse_match_page(driver, event_url):
             raise Exception("Гостевая команда не найдена")
         away_team = away_team_elem.text
 
+        logger.info(f"Проверка команд: '{home_team}' vs '{away_team}'")
+
         if "(" in home_team or "(" in away_team:
             logger.info(f"Пропущен киберматч: {home_team} vs {away_team}")
-        return {
-        "teams": f"{home_team} - {away_team}",
-        "score": "",
-        "time_info": "",
-        "found_odds": [],
-        "has_target_odds": False,
-        "event_url": event_url
-        }
+            return {
+                "teams": f"{home_team} - {away_team}",
+                "score": "",
+                "time": "",
+                "found_odds": [],
+                "has_target_odds": False,
+                "event_url": event_url
+            }
 
         time_info_elem = get_shadow_element(driver, shadow_host, ".lv_timer")
         time_info = time_info_elem.text if time_info_elem else ""
