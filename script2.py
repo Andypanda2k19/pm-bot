@@ -1,4 +1,6 @@
+
 import asyncio
+from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from selenium import webdriver
@@ -13,7 +15,6 @@ from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 from aiogram.enums import ParseMode
 import os
-import random
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import time
@@ -23,7 +24,8 @@ from selenium.common.exceptions import StaleElementReferenceException
 import hashlib
 from logging.handlers import RotatingFileHandler
 import uuid
-
+import shutil
+import glob
 
 # Настройки
 load_dotenv()
@@ -58,9 +60,81 @@ bet_messages = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-
 handler = RotatingFileHandler("bot.log", maxBytes=5_000_000, backupCount=3)
+
+
+async def cleanup_cache():
+    """Очистка кеша средствами Python"""
+    report = ["🗑 Отчет об очистке кеша:"]
+
+    try:
+        # 1. Очистка /tmp/
+        tmp_size = 0
+        for f in glob.glob('/tmp/*'):
+            try:
+                if os.path.isfile(f):
+                    tmp_size += os.path.getsize(f)
+                    os.remove(f)
+                elif os.path.isdir(f):
+                    shutil.rmtree(f)
+            except Exception as e:
+                report.append(f"⚠️ Ошибка очистки {f}: {str(e)}")
+        report.append(f"✅ /tmp/ очищен (освобождено ~{tmp_size // 1024} KB)")
+
+        # 2. Очистка ~/.cache/
+        cache_dir = os.path.expanduser('~/.cache')
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+            os.makedirs(cache_dir, exist_ok=True)
+            report.append("✅ ~/.cache/ очищен")
+        else:
+            report.append("ℹ️ ~/.cache/ не существует")
+
+        # 3. Очистка старых логов (без sudo)
+        log_files = glob.glob('/var/log/*.log') + glob.glob('/var/log/**/*.log')
+        deleted_logs = 0
+        for log in log_files:
+            try:
+                if os.path.getmtime(log) < time.time() - 7 * 86400:  # Старше 7 дней
+                    os.remove(log)
+                    deleted_logs += 1
+            except:
+                continue
+        report.append(f"✅ Удалено логов: {deleted_logs}")
+
+        return "\n".join(report)
+
+    except Exception as e:
+        logger.error(f"Ошибка очистки: {e}")
+        return f"❌ Ошибка очистки: {str(e)}"
+
+
+async def scheduled_cleanup():
+    """Периодическая очистка кеша"""
+    while True:
+        try:
+            report = await cleanup_cache()
+            logger.info("Автоматическая очистка кеша выполнена")
+
+            # Отправляем отчет админу
+            await bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"🕒 Автоочистка {datetime.now().strftime('%H:%M')}\n\n{report}"
+            )
+        except Exception as e:
+            logger.error(f"Ошибка в scheduled_cleanup: {e}")
+
+        await asyncio.sleep(3600)  # Каждый час
+
+
+@dp.message(Command("cleanup"))
+async def manual_cleanup(message: types.Message):
+    """Ручная очистка кеша по команде"""
+
+
+    msg = await message.answer("🧹 Начинаю очистку кеша...")
+    report = await cleanup_cache()
+    await msg.edit_text(report)
 
 def clean_tmp_older_than(minutes=30):
     now = time.time()
@@ -73,6 +147,7 @@ def clean_tmp_older_than(minutes=30):
                     os.remove(filepath)
                 except Exception:
                     pass
+
 
 async def is_cyber_football(teams_text):
     """Проверяет, является ли матч киберфутболом"""
@@ -117,6 +192,7 @@ async def check_odds(match_element):
     except Exception as e:
         logger.warning(f"Ошибка проверки коэффициентов: {e}")
     return found_odds
+
 
 def setup_driver():
     chrome_options = Options()
@@ -163,6 +239,7 @@ def wait_for_element(driver, by, selector, timeout=20, poll_frequency=0.5, logge
                     logger.error(f"Не удалось найти элемент: {selector} за {timeout} секунд")
                 return None
             time.sleep(poll_frequency)
+
 
 # Пример использования в твоём коде
 
@@ -220,7 +297,6 @@ async def parse_match_page(driver, event_url):
 
         logger.info(f"Проверка команд: '{home_team}' vs '{away_team}'")
 
-
         time_info_elem = get_shadow_element(driver, shadow_host, ".lv_timer")
         time_info = time_info_elem.text if time_info_elem else ""
 
@@ -234,7 +310,6 @@ async def parse_match_page(driver, event_url):
             print("Счёт:", score)
         else:
             print("Не удалось найти элементы счёта")
-
 
         logger.info(f"Матч: {home_team} vs {away_team}, Счёт: {score}, Время: {time_info}")
 
@@ -266,7 +341,6 @@ async def parse_match_page(driver, event_url):
 
                         stake_text = stake_holder.text.strip()
                         odd_value = float(odd_factor_el.text.strip())
-
 
                         if odd_value in TARGET_ODDS:
                             odd_type = "Больше" if "Больше" in stake_text else "Меньше"
@@ -313,9 +387,6 @@ async def parse_match_page(driver, event_url):
         return result_template
 
 
-
-
-
 async def parse_shadow_dom(driver):
     BASE_URL = "https://pm.by/ru/sport/live/football/flt-IntcIjFcIjp7fX0i-sub"
     logger.info(f"Открытие страницы: {BASE_URL}")
@@ -325,7 +396,10 @@ async def parse_shadow_dom(driver):
     shadow_host = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.TAG_NAME, "sport-latino-view"))
     )
-
+    logger.info("⏳ Ожидание загрузки страницы (readyState)")
+    WebDriverWait(driver, 30).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
     # Получаем список матчей один раз, потом будем обновлять в цикле
     shadow_root = driver.execute_script("return arguments[0].shadowRoot", shadow_host)
 
@@ -358,7 +432,6 @@ async def parse_shadow_dom(driver):
                 logger.warning(f"[{i}] Ссылка на матч не найдена.")
                 continue
 
-            
             driver.execute_script("arguments[0].click();", match_link)
 
             WebDriverWait(driver, 10).until(lambda d: "/event-details/" in d.current_url)
@@ -367,8 +440,7 @@ async def parse_shadow_dom(driver):
                 logger.info(f"[{i}] Пропуск киберфутбола: {match_url}")
                 i += 1
                 driver.get(BASE_URL)
-                WebDriverWait(driver, 10).until(lambda d: d.current_url == BASE_URL)
-                WebDriverWait(driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+                WebDriverWait(driver, 10).until(lambda d: BASE_URL in d.current_url)
                 time.sleep(0.5)
                 continue
 
@@ -386,16 +458,12 @@ async def parse_shadow_dom(driver):
             logger.error(f"[{i}] Ошибка при переходе: {traceback.format_exc()}")
         finally:
             driver.get(BASE_URL)
-            WebDriverWait(driver, 10).until(lambda d: d.current_url == BASE_URL)
+            WebDriverWait(driver, 10).until(lambda d: BASE_URL in d.current_url)
             WebDriverWait(driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             time.sleep(0.5)
 
     driver.quit()
     return all_matches
-
-
-
-
 
 
 async def send_bet_to_chats22(match_info, found_odds):
@@ -464,6 +532,7 @@ async def send_bet_to_chats22(match_info, found_odds):
     except Exception as e:
         print(f"Ошибка отправки ставки: {e}")
 
+
 async def send_bet_to_chats(match_info, found_odds):
     """Отправляет ставку в оба чата"""
     try:
@@ -502,7 +571,6 @@ async def send_bet_to_chats(match_info, found_odds):
             InlineKeyboardButton(text="📌 Ссылка на событие", url=match_info['event_url'])
         )
 
-
         # Отправляем в групповой чат
         try:
             group_message = await bot.send_message(
@@ -521,7 +589,6 @@ async def send_bet_to_chats(match_info, found_odds):
         print(f"❌ Общая ошибка в send_bet_to_chats: {e}")
 
 
-
 async def monitor_matches():
     """Мониторинг матчей"""
     DELAY_BETWEEN_MSGS = 10  # сек между ставками
@@ -536,7 +603,6 @@ async def monitor_matches():
                     if match['has_target_odds']:
                         bet_id = str(hash(f"{match['teams']}_{match['time']}"))[:10]
                         if bet_id not in bet_messages:
-                            await send_bet_to_chats(match, match['found_odds'])
                             await asyncio.sleep(DELAY_BETWEEN_MSGS)
                     else:
                         logger.info(f"Нет нужного коэф. для: {match['teams']}, ищу другой...")
@@ -546,7 +612,7 @@ async def monitor_matches():
 
             await asyncio.sleep(30)  # интервал между полными циклами
         except Exception as e:
-            logger.error(f"Ошибка мониторинга: {e}")
+            logger.error(f"Ошибка мониторинга:\n{traceback.format_exc()}")
             await asyncio.sleep(60)
 
 
@@ -622,6 +688,7 @@ async def manual_check(message: types.Message):
 
 async def main():
     asyncio.create_task(monitor_matches())
+    asyncio.create_task(scheduled_cleanup())
     await dp.start_polling(bot)
 
 
