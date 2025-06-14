@@ -31,9 +31,14 @@ import re
 
 # Настройки
 load_dotenv()
-TOKEN = "8125187062:AAFGe_HFNxM3oTMwWuQYIwvem2ILEkcUj3o"
-ADMIN_CHAT_ID = "-4917303136"
-GROUP_CHAT_ID = "-1002605832321"
+TOKEN = os.getenv("TOKEN")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
+GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID"))
+
+# Проверки на наличие переменных
+assert TOKEN is not None, "Переменная TOKEN не найдена в .env"
+assert ADMIN_CHAT_ID is not None, "Переменная ADMIN_CHAT_ID не найдена в .env"
+assert GROUP_CHAT_ID is not None, "Переменная GROUP_CHAT_ID не найдена в .env"
 
 # Искомые коэффициенты
 TARGET_ODDS = {2.57, 1.83, 2.21}
