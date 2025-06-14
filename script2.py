@@ -1,4 +1,4 @@
-
+import openai
 import asyncio
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
@@ -26,6 +26,7 @@ from logging.handlers import RotatingFileHandler
 import uuid
 import shutil
 import glob
+import re
 
 # Настройки
 load_dotenv()
@@ -259,6 +260,7 @@ async def parse_match_page(driver, event_url):
         shadow_host = wait.until(EC.presence_of_element_located((By.TAG_NAME, "sport-latino-view")))
     except TimeoutException:
         logger.error("Элемент sport-latino-view не найден после ожидания")
+        return result_template
 
     def get_shadow_element(driver, shadow_host, selector):
         return driver.execute_script(
@@ -300,18 +302,36 @@ async def parse_match_page(driver, event_url):
         time_info_elem = get_shadow_element(driver, shadow_host, ".lv_timer")
         time_info = time_info_elem.text if time_info_elem else ""
 
-        # Если scores и markets тоже внутри Shadow DOM, их нужно доставать аналогично
         score_elements = get_shadow_elements(driver, shadow_host, 'div.lv_live_scores span.lv_score')
 
         if len(score_elements) >= 2:
-            home_score = score_elements[0].text  # первый счёт (например, 3)
-            away_score = score_elements[1].text  # второй счёт (например, 0)
+            home_score = score_elements[0].text
+            away_score = score_elements[1].text
             score = f"{home_score}:{away_score}"
             print("Счёт:", score)
         else:
+            score = ""
             print("Не удалось найти элементы счёта")
 
-        logger.info(f"Матч: {home_team} vs {away_team}, Счёт: {score}, Время: {time_info}")
+        # --- Клик по вкладке "1-й тайм" ---
+        tabs = get_shadow_elements(driver, shadow_host, "button.lv_filter_tab")
+        first_half_tab = None
+        for tab in tabs:
+            try:
+                title = tab.get_attribute("title")
+                if title == "1-й тайм":
+                    first_half_tab = tab
+                    break
+            except Exception as e:
+                print(f"Ошибка получения атрибута title у вкладки: {e}")
+
+        if first_half_tab:
+            driver.execute_script("arguments[0].click();", first_half_tab)
+            logger.info("Кликнули на вкладку '1-й тайм'")
+            # Ждём загрузку рынков после клика
+            time.sleep(2)  # можно заменить на более умное ожидание, если надо
+        else:
+            logger.warning("Вкладка '1-й тайм' не найдена")
 
         all_odds = []
 
@@ -320,47 +340,40 @@ async def parse_match_page(driver, event_url):
 
         for i, market in enumerate(markets):
             try:
-
-                # Получаем заголовок обычным методом
-                try:
-                    header_el = market.find_element(By.CSS_SELECTOR, 'span.lv_header_text')
-                    header = header_el.text.strip()
-                except:
-                    continue
-
-                if "Тотал" not in header:
-                    continue
-
-                # Получаем ставки обычным методом
-                stakes = market.find_elements(By.CSS_SELECTOR, 'button.lv_marketStake')
-
-                for stake in stakes:
-                    try:
-                        stake_holder = stake.find_element(By.CSS_SELECTOR, 'span.lv_stake_holder')
-                        odd_factor_el = stake.find_element(By.CSS_SELECTOR, 'span.lv_stake_factor')
-
-                        stake_text = stake_holder.text.strip()
-                        odd_value = float(odd_factor_el.text.strip())
-
-                        if odd_value in TARGET_ODDS:
-                            odd_type = "Больше" if "Больше" in stake_text else "Меньше"
-                            detail = f"{header} {stake_text}"
-                            all_odds.append({
-                                "value": odd_value,
-                                "type": f"Тотал {odd_type}",
-                                "detail": detail
-                            })
-                    except Exception as e:
-                        print(f"Ошибка обработки ставки: {e}")
-                        continue
-
-            except Exception as e:
-                print(f"Ошибка обработки рынка: {e}")
+                header_el = market.find_element(By.CSS_SELECTOR, 'span.lv_header_text')
+                header = header_el.text.strip()
+            except Exception:
                 continue
+
+            if "Тотал" not in header:
+                continue
+
+            stakes = market.find_elements(By.CSS_SELECTOR, 'button.lv_marketStake')
+
+            for stake in stakes:
+                try:
+                    stake_holder = stake.find_element(By.CSS_SELECTOR, 'span.lv_stake_holder')
+                    odd_factor_el = stake.find_element(By.CSS_SELECTOR, 'span.lv_stake_factor')
+
+                    stake_text = stake_holder.text.strip()
+                    odd_value = float(odd_factor_el.text.strip())
+
+                    if odd_value in TARGET_ODDS:
+                        odd_type = "Больше" if "Больше" in stake_text else "Меньше"
+                        detail = f"{header} {stake_text}"
+                        all_odds.append({
+                            "value": odd_value,
+                            "type": f"Тотал {odd_type}",
+                            "detail": detail
+                        })
+                except Exception as e:
+                    print(f"Ошибка обработки ставки: {e}")
+                    continue
 
         print("Найденные кэфы:")
         for odd in all_odds:
             print(f"{odd['type']}: {odd['value']} ({odd['detail']})")
+
         if len(all_odds) > 0:
             await send_bet_to_chats(
                 {
@@ -392,7 +405,6 @@ async def parse_shadow_dom(driver):
     logger.info(f"Открытие страницы: {BASE_URL}")
     driver.get(BASE_URL)
 
-    # Ждем загрузки shadow root
     shadow_host = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.TAG_NAME, "sport-latino-view"))
     )
@@ -400,10 +412,8 @@ async def parse_shadow_dom(driver):
     WebDriverWait(driver, 30).until(
         lambda d: d.execute_script("return document.readyState") == "complete"
     )
-    # Получаем список матчей один раз, потом будем обновлять в цикле
-    shadow_root = driver.execute_script("return arguments[0].shadowRoot", shadow_host)
 
-    # Получаем изначальный список матчей
+    shadow_root = driver.execute_script("return arguments[0].shadowRoot", shadow_host)
     match_blocks = shadow_root.find_elements(By.CSS_SELECTOR, ".lv_event_row")
     logger.info(f"Найдено матчей: {len(match_blocks)}")
 
@@ -411,19 +421,31 @@ async def parse_shadow_dom(driver):
 
     for i in range(len(match_blocks)):
         try:
-            # Каждый раз обновляем shadow host и корень (потому что после перехода DOM меняется)
             shadow_host = driver.find_element(By.TAG_NAME, "sport-latino-view")
             shadow_root = driver.execute_script("return arguments[0].shadowRoot", shadow_host)
-
-            # Обновляем список матчей
             match_blocks = shadow_root.find_elements(By.CSS_SELECTOR, ".lv_event_row")
 
-            # Проверяем, что индекс i не выходит за границы
             if i >= len(match_blocks):
                 logger.warning(f"[{i}] Индекс превышает количество матчей после обновления списка. Пропускаем.")
                 continue
 
             match_element = match_blocks[i]
+
+            # Получаем время матча из атрибута title
+            time_elem = match_element.find_element(By.CSS_SELECTOR, ".lv_event_time")
+            time_title = time_elem.get_attribute("title").lower()  # пример: "6' 1-й тайм"
+
+            # Если матч не в первом тайме и не на перерыве — пропускаем
+            if "1-й тайм" not in time_title and "перерыв" not in time_title:
+                logger.info(f"[{i}] Матч не в первом тайме или на перерыве ({time_title}), пропускаем.")
+                continue
+
+            # Проверяем киберфутбол по названию команд (скобки с английским текстом)
+            teams_elem = match_element.find_element(By.CSS_SELECTOR, ".lv_teams")
+            teams_title = teams_elem.get_attribute("title")
+            if re.search(r"\([A-Za-z\s]+\)", teams_title):
+                logger.info(f"[{i}] Киберфутбол найден в названии команд: {teams_title}. Пропускаем матч.")
+                continue
 
             match_link = driver.execute_script(
                 "return arguments[0].querySelector('.lv_event_info.lv__pointer')", match_element
@@ -433,16 +455,8 @@ async def parse_shadow_dom(driver):
                 continue
 
             driver.execute_script("arguments[0].click();", match_link)
-
             WebDriverWait(driver, 10).until(lambda d: "/event-details/" in d.current_url)
             match_url = driver.current_url
-            if ")" in match_url.lower() or "(" in match_url.lower():
-                logger.info(f"[{i}] Пропуск киберфутбола: {match_url}")
-                i += 1
-                driver.get(BASE_URL)
-                WebDriverWait(driver, 10).until(lambda d: BASE_URL in d.current_url)
-                time.sleep(0.5)
-                continue
 
             logger.info(f"[{i + 1}] Перешли по клику: {match_url}")
             time.sleep(1)
@@ -466,73 +480,6 @@ async def parse_shadow_dom(driver):
     return all_matches
 
 
-async def send_bet_to_chats22(match_info, found_odds):
-    """Отправляет ставку в оба чата"""
-    try:
-        # Формируем текст сообщения
-        message_text = (
-            f"----------------------------------\n"
-            f"⚽ <b>{match_info['teams']}</b>\n"
-            f"⏰ Время: {match_info['time']}\n"
-            f"🔢 Счет: {match_info['score']}\n\n"
-            f"💰 <b>Найдены коэффициенты:</b>\n"
-        )
-
-        # Добавляем коэффициенты
-        odds_by_type = {}
-        for odd in found_odds:
-            if odd['type'] not in odds_by_type:
-                odds_by_type[odd['type']] = []
-            odds_by_type[odd['type']].append(str(odd['value']))
-
-        for market_type, odds in odds_by_type.items():
-            message_text += f"• {market_type}: {', '.join(odds)}\n"
-
-        # Клавиатура для группового чата
-        group_keyboard = InlineKeyboardBuilder()
-        group_keyboard.row(
-            InlineKeyboardButton(text="🔄 В процессе", callback_data="empty")
-
-        )
-
-        # Клавиатура для админов
-        admin_keyboard = InlineKeyboardBuilder()
-        bet_id = str(hash(f"{match_info['teams']}_{match_info['time']}"))[:10]
-        admin_keyboard.row(
-            InlineKeyboardButton(text="✅ Подтвердить выигрыш",
-                                 callback_data=f"set_result:win:{bet_id}"),
-            InlineKeyboardButton(text="❌ Подтвердить проигрыш",
-                                 callback_data=f"set_result:lose:{bet_id}"),
-        )
-
-        # Отправляем в групповой чат
-        group_message = await bot.send_message(
-            chat_id=GROUP_CHAT_ID,
-            text=message_text,
-            parse_mode="HTML",
-            reply_markup=group_keyboard.as_markup()
-        )
-
-        # Отправляем в чат админов
-        admin_message = await bot.send_message(
-            chat_id=ADMIN_CHAT_ID,
-            text=f"📢 АДМИН | {message_text}",
-            parse_mode="HTML",
-            reply_markup=admin_keyboard.as_markup()
-        )
-
-        # Сохраняем ID сообщений
-        bet_messages[bet_id] = {
-            "teams": match_info['teams'],
-            "group_message_id": group_message.message_id,
-            "admin_message_id": admin_message.message_id,
-            "text": message_text
-        }
-
-    except Exception as e:
-        print(f"Ошибка отправки ставки: {e}")
-
-
 async def send_bet_to_chats(match_info, found_odds):
     """Отправляет ставку в оба чата"""
     try:
@@ -541,15 +488,14 @@ async def send_bet_to_chats(match_info, found_odds):
         if not found_odds:
             print("⚠️ found_odds пустой!")
             return
-
         # Формируем текст сообщения
         message_text = (
-            f"----------------------------------\n"
             f"⚽ <b>{match_info['teams']}</b>\n"
             f"⏰ Время: {match_info['time']}\n"
             f"🔢 Счет: {match_info['score']}\n\n"
             f"💰 <b>Найдены коэффициенты:</b>\n"
         )
+
 
         # Добавляем коэффициенты
         odds_by_type = {}
@@ -560,6 +506,9 @@ async def send_bet_to_chats(match_info, found_odds):
 
         for odd in found_odds:
             message_text += f"• {odd['detail']}: {odd['value']}\n"
+
+            # Добавляем прогноз, если применимо
+
 
         # Генерируем стабильный bet_id через md5
         bet_id = hashlib.md5(f"{match_info['teams']}_{match_info['time']}".encode()).hexdigest()[:10]
@@ -587,6 +536,34 @@ async def send_bet_to_chats(match_info, found_odds):
 
     except Exception as e:
         print(f"❌ Общая ошибка в send_bet_to_chats: {e}")
+
+async def get_ai_prediction(match_info, found_odds):
+    prompt = f"""
+Матч: {match_info['teams']}
+Время: {match_info['time']}
+Счёт: {match_info['score']}
+Коэффициенты:
+"""
+    for odd in found_odds:
+        prompt += f"- {odd['detail']}: {odd['value']}\n"
+
+    prompt += "\nСделай 1-2 прогноза, что можно поставить БЕЗ РИСКА, основываясь на этих данных. Ответь кратко, по пунктам."
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",  # или "gpt-3.5-turbo"
+            messages=[
+                {"role": "system", "content": "Ты опытный аналитик спортивных ставок."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=200,
+        )
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        print(f"Ошибка при обращении к OpenAI: {e}")
+        return ""
 
 
 async def monitor_matches():
