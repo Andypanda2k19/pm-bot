@@ -1,4 +1,4 @@
-import openai
+
 import asyncio
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
@@ -27,6 +27,7 @@ import uuid
 import shutil
 import glob
 import re
+
 
 # Настройки
 load_dotenv()
@@ -479,6 +480,31 @@ async def parse_shadow_dom(driver):
     driver.quit()
     return all_matches
 
+def make_prediction(odds_by_type: dict) -> str:
+    """Генерирует текст прогноза на основе коэффициентов"""
+    recommendations = []
+
+    try:
+        # Преобразуем строковые коэффициенты в float
+        def safe_float(val): return float(val.replace(",", "."))
+
+        one_b = max([safe_float(x) for x in odds_by_type.get("1б", [])], default=0)
+        zero_five_b = max([safe_float(x) for x in odds_by_type.get("0.5б", [])], default=0)
+        one_five_b = [safe_float(x) for x in odds_by_type.get("1.5б", [])]
+
+        if one_b == 2.57:
+            recommendations.append("⚠️ Без риска: тотал 0.5Б на пробу (0.5%)")
+
+        if zero_five_b == 2.57:
+            recommendations.append("🔥 Рискованный вход: тотал 0.5Б (высокий коэффициент)")
+
+        if sorted(one_five_b) == sorted([2.57, 2.21, 1.83]):
+            recommendations.append("✅ Без риска: можно греть 1Б (по 1.5Б)")
+
+    except Exception as e:
+        recommendations.append(f"⚠️ Ошибка в прогнозе: {e}")
+
+    return "\n".join(recommendations) if recommendations else "❌ Прогнозов нет по шаблону"
 
 async def send_bet_to_chats(match_info, found_odds):
     """Отправляет ставку в оба чата"""
@@ -508,7 +534,8 @@ async def send_bet_to_chats(match_info, found_odds):
             message_text += f"• {odd['detail']}: {odd['value']}\n"
 
             # Добавляем прогноз, если применимо
-
+        prediction_text = make_prediction(odds_by_type)
+        message_text += f"\n📊 <b>Прогноз:</b>\n{prediction_text}\n"
 
         # Генерируем стабильный bet_id через md5
         bet_id = hashlib.md5(f"{match_info['teams']}_{match_info['time']}".encode()).hexdigest()[:10]
@@ -537,33 +564,6 @@ async def send_bet_to_chats(match_info, found_odds):
     except Exception as e:
         print(f"❌ Общая ошибка в send_bet_to_chats: {e}")
 
-async def get_ai_prediction(match_info, found_odds):
-    prompt = f"""
-Матч: {match_info['teams']}
-Время: {match_info['time']}
-Счёт: {match_info['score']}
-Коэффициенты:
-"""
-    for odd in found_odds:
-        prompt += f"- {odd['detail']}: {odd['value']}\n"
-
-    prompt += "\nСделай 1-2 прогноза, что можно поставить БЕЗ РИСКА, основываясь на этих данных. Ответь кратко, по пунктам."
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",  # или "gpt-3.5-turbo"
-            messages=[
-                {"role": "system", "content": "Ты опытный аналитик спортивных ставок."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=200,
-        )
-        return response.choices[0].message.content.strip()
-
-    except Exception as e:
-        print(f"Ошибка при обращении к OpenAI: {e}")
-        return ""
 
 
 async def monitor_matches():
