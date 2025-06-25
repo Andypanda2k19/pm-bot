@@ -407,7 +407,7 @@ async def parse_match_page(driver, event_url):
 
 
 async def parse_shadow_dom(driver):
-    BASE_URL = "https://pm.by/ru/sport/live/football/flt-IntcIjFcIjp7fX0i-sub"
+    BASE_URL = "https://pm.by/ru/sport/live/football/"
     logger.info(f"Открытие страницы: {BASE_URL}")
     driver.get(BASE_URL)
 
